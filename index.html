@@ -1293,12 +1293,14 @@ function lockMouse() { if (!isTouch && cv.requestPointerLock && document.pointer
 
 // ── Books ──
 const LV_NAME = { L1: 'L1', L2: 'L2', L3: 'L3', S: 'Schol' };
-function syncPref() { document.querySelectorAll('[data-pref]').forEach(b => b.classList.toggle('on', b.dataset.pref === prefLevel)); }
-let prefLevel = (() => { try { return localStorage.getItem('bibliotheca.level') || 'all'; } catch (e) { return 'all'; } })();
-let curBook = null, vState = { level: prefLevel, q: '', cover: false };
+function syncPref() { document.querySelectorAll('[data-pref]').forEach(b => b.classList.toggle('on', b.dataset.pref === 'all' ? !prefLevels.length : prefLevels.includes(b.dataset.pref))); }
+let prefLevels = (() => { try { const v = localStorage.getItem('bibliotheca.level') || 'all'; return v === 'all' ? [] : v.split(',').filter(Boolean); } catch (e) { return []; } })();
+// Toggle one level in a set; 'all' clears the set (an empty set means every level)
+function toggleLevel(set, l) { if (l === 'all') set.clear(); else if (set.has(l)) set.delete(l); else set.add(l); if (set.size === 4) set.clear(); }
+let curBook = null, vState = { levels: new Set(prefLevels), q: '', cover: false };
 function openBook(b) {
   curBook = b; mode = 'read'; freeMouse(); sfx.page();
-  $('reader').classList.add('on'); vState = { level: prefLevel, q: '', cover: false };
+  $('reader').classList.add('on'); vState = { levels: new Set(prefLevels), q: '', cover: false };
   renderBook(); $('reader').scrollTop = 0;
 }
 function renderBook() {
@@ -1306,7 +1308,7 @@ function renderBook() {
   let h = `<button class="small close" id="bookClose">Close ✕</button><div class="crumb">${esc(b.area)} · ${esc(b.section || b.shelf || '')}</div><h2>${esc(b.title)}</h2>${b.sub ? `<div class="bsub">${esc(b.sub)}</div>` : '<div class="bsub"></div>'}`;
   if (b.kind === 'grammar') h += `<div class="tablewrap">${b.html}</div>`;
   else {
-    h += `<div class="tools">${['all', 'L1', 'L2', 'L3', 'S'].map(l => `<button class="small${vState.level === l ? ' on' : ''}" data-lv="${l}">${l === 'all' ? 'All levels' : l === 'S' ? 'Scholarship' : 'Level ' + l[1]}</button>`).join('')}
+    h += `<div class="tools">${['all', 'L1', 'L2', 'L3', 'S'].map(l => `<button class="small${(l === 'all' ? !vState.levels.size : vState.levels.has(l)) ? ' on' : ''}" data-lv="${l}">${l === 'all' ? 'All levels' : l === 'S' ? 'Scholarship' : 'Level ' + l[1]}</button>`).join('')}
       <button class="small${vState.cover ? ' on' : ''}" id="coverBtn">${vState.cover ? 'Show the English' : 'Cover the English (test yourself)'}</button>
       <input id="vq" type="text" placeholder="Search these words…" value="${esc(vState.q)}" autocomplete="off" spellcheck="false"></div><div class="tablewrap" id="vlist"></div>`;
   }
@@ -1316,7 +1318,7 @@ function renderBook() {
 }
 function renderWords() {
   const q = fold(vState.q.trim());
-  const list = curBook.words.filter(w => (vState.level === 'all' || w.level === vState.level) && (!q || fold(w.latin).includes(q) || fold(w.english).includes(q) || fold(w.info).includes(q)))
+  const list = curBook.words.filter(w => (!vState.levels.size || vState.levels.has(w.level)) && (!q || fold(w.latin).includes(q) || fold(w.english).includes(q) || fold(w.info).includes(q)))
     .sort((a, b) => fold(a.latin).localeCompare(fold(b.latin)));
   $('vlist').innerHTML = `<div class="count">${list.length} ${list.length === 1 ? 'word' : 'words'}</div><table class="vtab"><thead><tr><th>Latin</th><th>Forms</th><th>English</th><th>Level</th></tr></thead><tbody>` +
     list.map(w => `<tr><td class="lat">${esc(w.latin)}</td><td class="nt">${esc(w.info)}</td><td class="en${vState.cover ? ' hid' : ''}">${esc(w.english)}</td><td><span class="lv ${w.level}">${LV_NAME[w.level] || w.level}</span></td></tr>`).join('') + '</tbody></table>';
@@ -1589,10 +1591,10 @@ document.addEventListener('click', e => {
   if (t.closest('#resumeBtn')) { screen(null); return backToPlay(); }
   if (t.closest('#toEntrance')) { screen(null); Object.assign(Pl, { x: START.x, z: START.z, yaw: START.yaw, pitch: 0 }); return backToPlay(); }
   if (t.closest('#toDesk')) { screen(null); Object.assign(Pl, { x: LIBRARIAN_SPOT.x, z: LIBRARIAN_SPOT.z, yaw: 0, pitch: -0.05 }); return backToPlay(); }
-  const pf = t.closest('[data-pref]'); if (pf) { prefLevel = pf.dataset.pref; try { localStorage.setItem('bibliotheca.level', prefLevel); } catch (e) {} syncPref(); return; }
+  const pf = t.closest('[data-pref]'); if (pf) { const st = new Set(prefLevels); toggleLevel(st, pf.dataset.pref); prefLevels = [...st]; try { localStorage.setItem('bibliotheca.level', prefLevels.length ? prefLevels.join(',') : 'all'); } catch (e) {} syncPref(); return; }
   const g = t.closest('[data-gfx]'); if (g) return setGfx(g.dataset.gfx);
   if (t.closest('#bookClose')) return closeBook();
-  const lv = t.closest('[data-lv]'); if (lv) { vState.level = lv.dataset.lv; document.querySelectorAll('[data-lv]').forEach(b => b.classList.toggle('on', b === lv)); return renderWords(); }
+  const lv = t.closest('[data-lv]'); if (lv) { toggleLevel(vState.levels, lv.dataset.lv); document.querySelectorAll('[data-lv]').forEach(b => b.classList.toggle('on', b.dataset.lv === 'all' ? !vState.levels.size : vState.levels.has(b.dataset.lv))); return renderWords(); }
   if (t.closest('#coverBtn')) { vState.cover = !vState.cover; t.closest('#coverBtn').classList.toggle('on', vState.cover); t.closest('#coverBtn').textContent = vState.cover ? 'Show the English' : 'Cover the English (test yourself)'; return renderWords(); }
   const hid = t.closest('td.en.hid'); if (hid) { hid.classList.remove('hid'); return; }
   if (t.id === 'reader') return closeBook();
